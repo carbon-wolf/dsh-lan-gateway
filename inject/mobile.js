@@ -83,18 +83,20 @@
   }
 
   /**
-   * The chat footer stats open a `position: fixed` detail panel anchored with CSS
-   * anchor positioning. In an ordinary browser that panel can land far outside
-   * the viewport (measured `top: -4700px`), so tapping the stat looks inert even
-   * though the panel exists. Far-off panels are re-placed above the composer and
-   * followed frame by frame, because React may drop the inline style on re-render.
+   * Floating overlays in this shell are positioned with CSS anchor positioning.
+   * In an ordinary browser their computed spot can be wildly wrong: the footer
+   * stat panels land ~4700px above the viewport, and floating menus can drift
+   * past an edge after the sidebar scrolls or a narrow window re-lays out.
    *
-   * Only panels far above/below the viewport are touched: a collapsed sidebar
-   * drawer also sits at a negative `left`, and pulling that in would be wrong.
+   * Two repairs, both limited to overlays that are actually out of view:
+   *   - far off (anchor math collapsed)  -> re-place above the composer, centred;
+   *   - partly outside an edge          -> clamp back inside with an 8px margin.
+   * A collapsed sidebar drawer (negative left, normal top) never matches either.
    */
-  const isFarOffscreen = (rect) => rect.height > 0 && (rect.top < -100 || rect.bottom > window.innerHeight + 100)
+  const OVERLAY_SELECTOR = '[role="dialog"], [role="menu"][data-anchor-side]'
+  const MARGIN = 8
 
-  const placePanel = (panel, rect) => {
+  const placeAboveComposer = (panel, rect) => {
     const dock = document.querySelector('[data-composer-dock]')?.getBoundingClientRect() ?? null
     const width = rect.width
     const height = rect.height
@@ -114,15 +116,44 @@
     panel.dataset.dshgwPositioned = '1'
   }
 
+  const clampIntoView = (panel, rect) => {
+    const left = Math.min(Math.max(MARGIN, rect.left), Math.max(MARGIN, window.innerWidth - rect.width - MARGIN))
+    const top = Math.min(Math.max(MARGIN, rect.top), Math.max(MARGIN, window.innerHeight - rect.height - MARGIN))
+    panel.style.setProperty('inset', 'auto', 'important')
+    panel.style.setProperty('top', `${String(Math.round(top))}px`, 'important')
+    panel.style.setProperty('left', `${String(Math.round(left))}px`, 'important')
+    panel.style.setProperty('bottom', 'auto', 'important')
+    panel.style.setProperty('right', 'auto', 'important')
+    panel.dataset.dshgwPositioned = '1'
+  }
+
+  const repairOverlay = (panel) => {
+    // Only floating layers. The sidebar drawer and modal panels are in normal
+    // flow (`static` / `relative`); clamping those would shift the layout — the
+    // drawer is exactly viewport-height, so it "touches" the bottom edge.
+    const position = getComputedStyle(panel).position
+    if (position !== 'fixed' && position !== 'absolute') return
+    const rect = panel.getBoundingClientRect()
+    if (rect.width === 0 || rect.height === 0) return
+    const farAbove = rect.top < -100
+    const farBelow = rect.bottom > window.innerHeight + 100
+    const outside = rect.top < MARGIN - 1
+      || rect.left < MARGIN - 1
+      || rect.right > window.innerWidth - MARGIN + 1
+      || rect.bottom > window.innerHeight - MARGIN + 1
+    if (farAbove || farBelow) placeAboveComposer(panel, rect)
+    else if (outside) clampIntoView(panel, rect)
+  }
+
   let followHandle = null
   const followPanels = () => {
     followHandle = null
     let visible = 0
-    for (const panel of document.querySelectorAll('[role="dialog"]')) {
+    for (const panel of document.querySelectorAll(OVERLAY_SELECTOR)) {
       const rect = panel.getBoundingClientRect()
       if (rect.width === 0 || rect.height === 0) continue
       visible += 1
-      if (isFarOffscreen(rect)) placePanel(panel, rect)
+      repairOverlay(panel)
     }
     if (visible > 0) followHandle = window.requestAnimationFrame(followPanels)
   }
@@ -154,19 +185,16 @@
         new MutationObserver((records) => {
           decorateMenu()
           startPanelFollower()
-          // Fix each freshly inserted dialog on the next frame: the shell's own
-          // anchor positioning can drop it far outside the viewport.
+          // Repair each freshly inserted overlay on the next frame: the shell's
+          // own anchor positioning can drop it far outside the viewport.
           for (const record of records) {
             for (const node of record.addedNodes) {
               if (node.nodeType !== 1) continue
-              const candidates = node.matches?.('[role="dialog"]') === true
+              const candidates = node.matches?.(OVERLAY_SELECTOR) === true
                 ? [node]
-                : [...(node.querySelectorAll?.('[role="dialog"]') ?? [])]
+                : [...(node.querySelectorAll?.(OVERLAY_SELECTOR) ?? [])]
               for (const panel of candidates) {
-                window.requestAnimationFrame(() => {
-                  const rect = panel.getBoundingClientRect()
-                  if (isFarOffscreen(rect)) placePanel(panel, rect)
-                })
+                window.requestAnimationFrame(() => repairOverlay(panel))
               }
             }
           }

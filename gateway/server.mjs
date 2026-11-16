@@ -904,7 +904,16 @@ async function handleSettingsRoute(req, res, config, auth, runtime) {
 
 // ── request handling ────────────────────────────────────────────────────────
 
-const agent = new Agent({ keepAlive: true, maxSockets: 64, maxFreeSockets: 16 })
+const agent = new Agent({ keepAlive: true, maxSockets: 64, maxFreeSockets: 16, timeout: 30_000 })
+
+/** A reused keep-alive socket can already be closed by the Host; without a
+ *  timeout such a request waits forever and the page just appears to hang. */
+const UPSTREAM_TIMEOUT_MS = 20_000
+const RETRYABLE_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EPIPE', 'EHOSTUNREACH', 'ERR_STREAM_PREMATURE_CLOSE'])
+
+function isRetryable(error) {
+  return RETRYABLE_CODES.has(String(error.code)) || /socket hang up|aborted|premature/i.test(String(error.message))
+}
 
 function wantsHtml(req) {
   return String(req.headers.accept ?? '').includes('text/html')
@@ -1017,7 +1026,7 @@ async function proxyRequest(req, res, config) {
 
   const attempt = (retry) => {
     const headers = rewriteRequestHeaders(req.headers, port, config.sessionDays)
-    const upstream = httpRequest({ host: '127.0.0.1', port, method: req.method, path: req.url ?? '/', headers, agent }, (upstreamRes) => {
+    const upstream = httpRequest({ host: '127.0.0.1', port, method: req.method, path: req.url ?? '/', headers, agent, timeout: UPSTREAM_TIMEOUT_MS }, (upstreamRes) => {
       const status = upstreamRes.statusCode ?? 502
       const headersOut = {}
       for (const [name, value] of Object.entries(upstreamRes.headers)) {
@@ -1067,8 +1076,17 @@ async function proxyRequest(req, res, config) {
       upstreamRes.on('error', () => res.destroy())
     })
 
+    upstream.on('timeout', () => {
+      const error = new Error('upstream timeout')
+      error.code = 'ETIMEDOUT'
+      upstream.destroy(error)
+    })
+
     upstream.on('error', (error) => {
-      if (retry && (error.code === 'ECONNREFUSED' || error.code === 'EHOSTUNREACH')) {
+      if (retry && isRetryable(error)) {
+        log(`gateway: upstream ${String(error.code ?? error.message)} on 127.0.0.1:${String(port)}; rediscovering and retrying`)
+        // A pooled socket may be stale; drop the pool so the retry dials fresh.
+        agent.destroy()
         invalidatePort()
         void hostPort(config, { force: true }).then((next) => {
           if (next === null) {
@@ -1138,6 +1156,7 @@ function handleUpgrade(req, socket, head, config, auth) {
       upstream.pipe(socket)
       socket.pipe(upstream)
     })
+    upstream.setTimeout(10_000, () => upstream.destroy())
     upstream.on('error', () => {
       invalidatePort()
       socket.destroy()
