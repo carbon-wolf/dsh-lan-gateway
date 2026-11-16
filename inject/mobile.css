@@ -21,10 +21,11 @@ html[data-dsh-mobile] :where(input, textarea, select) {
   font-size: max(16px, 1em);
 }
 
-/* Comfortable touch targets without changing visual density of text. */
+/* Touch behaviour only. A blanket min-height here stretched icon-only buttons
+ * (the file card's folder + chevron pair) and pushed their glyphs out of line,
+ * so targets are enlarged per component instead. */
 html[data-dsh-mobile] :where(button, [role='button'], a[role='button']) {
   touch-action: manipulation;
-  min-height: 40px;
 }
 
 html[data-dsh-mobile] :where(button, [role='button'], summary) {
@@ -41,6 +42,22 @@ html[data-dsh-mobile] body {
   html[data-dsh-mobile] :where([data-contextual]) {
     display: none !important;
   }
+}
+
+/* File cards carry a two-part action group ("show in folder" + "more ways").
+ * Their buttons are only 18–23px wide on desktop, which on touch reads as two
+ * misaligned glyphs. Give both the same square target and keep the icon centred. */
+html[data-dsh-mobile] :where(button[data-open-path-open], button[data-open-path-more]) {
+  min-width: 34px;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+html[data-dsh-mobile] :where(button[data-open-path-open], button[data-open-path-more]) svg {
+  margin: 0;
+  vertical-align: middle;
 }
 
 /* Footer stats (turns / tok/s, token usage) open their detail panel on click,
