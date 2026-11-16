@@ -82,6 +82,55 @@
     logoutWrap.before(settingsItem, lockItem)
   }
 
+  /**
+   * The chat footer stats open a `position: fixed` detail panel anchored with CSS
+   * anchor positioning. In an ordinary browser that panel can land far outside
+   * the viewport (measured `top: -4700px`), so tapping the stat looks inert even
+   * though the panel exists. Far-off panels are re-placed above the composer and
+   * followed frame by frame, because React may drop the inline style on re-render.
+   *
+   * Only panels far above/below the viewport are touched: a collapsed sidebar
+   * drawer also sits at a negative `left`, and pulling that in would be wrong.
+   */
+  const isFarOffscreen = (rect) => rect.height > 0 && (rect.top < -100 || rect.bottom > window.innerHeight + 100)
+
+  const placePanel = (panel, rect) => {
+    const dock = document.querySelector('[data-composer-dock]')?.getBoundingClientRect() ?? null
+    const width = rect.width
+    const height = rect.height
+    let top = window.innerHeight - height - 96
+    if (dock !== null && dock.top > height + 24) top = dock.top - height - 12
+    top = Math.min(Math.max(12, top), Math.max(12, window.innerHeight - height - 12))
+    const left = Math.min(Math.max(12, (window.innerWidth - width) / 2), Math.max(12, window.innerWidth - width - 12))
+    panel.style.setProperty('position', 'fixed', 'important')
+    // Clear every anchor-derived inset first: CSS anchor positioning wins over
+    // plain top/left unless the shorthand is dropped too.
+    panel.style.setProperty('inset', 'auto', 'important')
+    panel.style.setProperty('top', `${String(Math.round(top))}px`, 'important')
+    panel.style.setProperty('left', `${String(Math.round(left))}px`, 'important')
+    panel.style.setProperty('bottom', 'auto', 'important')
+    panel.style.setProperty('right', 'auto', 'important')
+    panel.style.setProperty('transform', 'none', 'important')
+    panel.dataset.dshgwPositioned = '1'
+  }
+
+  let followHandle = null
+  const followPanels = () => {
+    followHandle = null
+    let visible = 0
+    for (const panel of document.querySelectorAll('[role="dialog"]')) {
+      const rect = panel.getBoundingClientRect()
+      if (rect.width === 0 || rect.height === 0) continue
+      visible += 1
+      if (isFarOffscreen(rect)) placePanel(panel, rect)
+    }
+    if (visible > 0) followHandle = window.requestAnimationFrame(followPanels)
+  }
+
+  const startPanelFollower = () => {
+    if (followHandle === null) followHandle = window.requestAnimationFrame(followPanels)
+  }
+
   const start = () => {
     try {
       const root = document.documentElement
@@ -99,9 +148,29 @@
       window.addEventListener('orientationchange', apply, { passive: true })
 
       decorateMenu()
+      startPanelFollower()
       window.setInterval(decorateMenu, 2000)
       try {
-        new MutationObserver(() => decorateMenu()).observe(document.documentElement, { childList: true, subtree: true })
+        new MutationObserver((records) => {
+          decorateMenu()
+          startPanelFollower()
+          // Fix each freshly inserted dialog on the next frame: the shell's own
+          // anchor positioning can drop it far outside the viewport.
+          for (const record of records) {
+            for (const node of record.addedNodes) {
+              if (node.nodeType !== 1) continue
+              const candidates = node.matches?.('[role="dialog"]') === true
+                ? [node]
+                : [...(node.querySelectorAll?.('[role="dialog"]') ?? [])]
+              for (const panel of candidates) {
+                window.requestAnimationFrame(() => {
+                  const rect = panel.getBoundingClientRect()
+                  if (isFarOffscreen(rect)) placePanel(panel, rect)
+                })
+              }
+            }
+          }
+        }).observe(document.documentElement, { childList: true, subtree: true })
       } catch {
         // observer is best-effort
       }

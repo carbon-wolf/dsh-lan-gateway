@@ -8,7 +8,7 @@
 // usage: node verify/probe-stats.mjs [--width 1440 --height 900] [--open last]
 import { spawn } from 'node:child_process'
 import { createHmac } from 'node:crypto'
-import { mkdirSync, readFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { defaultUrl, findBrowser, ROOT_DIR } from './_env.mjs'
@@ -166,9 +166,19 @@ const CLICK_STAT = `(() => {
 
 const POPOVER = `(() => {
   const items = [...document.querySelectorAll('[role=tooltip], [data-portal], [data-anchor-side], [role=dialog]')]
-    .map((element) => ({ role: element.getAttribute('role'), text: (element.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 90) }))
+    .map((element) => {
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return {
+        role: element.getAttribute('role'),
+        text: (element.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 90),
+        rect: { x: Math.round(rect.left), y: Math.round(rect.top), w: Math.round(rect.width), h: Math.round(rect.height) },
+        display: style.display,
+        position: style.position,
+      };
+    })
     .filter((entry) => entry.text !== '');
-  return JSON.stringify(items.slice(0, 6), null, 2);
+  return JSON.stringify({ viewport: [window.innerWidth, window.innerHeight], items: items.slice(0, 6) }, null, 2);
 })()`
 
 async function main() {
@@ -236,9 +246,20 @@ async function main() {
         return (stat.getAttribute('data-composer-stat') ?? 'stat') + ' | ' + (stat.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 36);
       })()`)
       await sleep(1000)
-      const dialogs = await cdp.evaluate(POPOVER)
+      const first = await cdp.evaluate(POPOVER)
+      await sleep(600)
+      const settled = await cdp.evaluate(POPOVER)
       console.log(`[${String(index)}] ${String(clicked)}`)
-      console.log(dialogs)
+      console.log('  immediate:', first.replace(/\s+/g, ' ').slice(0, 260))
+      console.log('  settled  :', settled.replace(/\s+/g, ' ').slice(0, 260))
+      if (index === 1) {
+        // Prove it on a phone: capture the panel the report is about.
+        const shot = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
+        const file = join(ROOT_DIR, 'artifacts', `stats-${String(width)}.png`)
+        mkdirSync(join(ROOT_DIR, 'artifacts'), { recursive: true })
+        writeFileSync(file, Buffer.from(shot.data, 'base64'))
+        console.log(`screenshot: ${file}`)
+      }
       await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
       await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
       await sleep(500)
