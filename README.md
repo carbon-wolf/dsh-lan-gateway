@@ -18,7 +18,24 @@
 | Node.js | 20 或更高（网关本体和脚本都用标准库，**零第三方依赖**） |
 | 浏览器 | 手机/桌面现代浏览器；移动端布局针对窄屏做了适配 |
 
-## 快速开始
+## 下载即用（推荐，不需要装 Node）
+
+[最新 Release](https://github.com/carbon-wolf/dsh-lan-gateway/releases/latest) 里的 **`dsh-gateway.exe`** 是单文件构建（约 81 MB，内置 Node 运行时）：
+
+1. 放进一个空文件夹（例如 `D:\dsh-gateway`），双击运行。
+2. 首次启动会自动选本机网卡地址、生成随机密码，窗口里打印：
+   ```
+   gateway: temporary password is xxxxxxxxxxxx
+   gateway: listening on http://192.168.1.23:3080
+   ```
+   防火墙弹窗选「允许访问」。
+3. 手机连同一 WiFi，浏览器打开该地址，输入密码。
+
+数据都在 exe 旁边（`config.json` / `auth.json` / `sessions.json` / `logs\`），拷走文件夹即迁移；改密码用设置页或 `dsh-gateway.exe --set-password 新密码`。
+
+自己构建单文件 exe：`npm install && npm run build:exe`（Node SEA，产物在 `dist\`）。
+
+## 源码方式（可改代码、可用守护进程）
 
 ```bat
 setup.cmd

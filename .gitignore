@@ -4,13 +4,21 @@ gateway/config.json
 gateway/sessions.json
 gateway/logs/
 
+# 构建产物
+dist/
+build/
+node_modules/
+
 # 本地验证产物
 artifacts/
 .edge-profile-*
 .edge-probe-*
 .edge-menu-*
 .edge-shot-*
+.edge-stats-*
+.edge-rename-*
+.edge-card-*
+.edge-chat-*
 
 # 工具链
-node_modules/
 *.log

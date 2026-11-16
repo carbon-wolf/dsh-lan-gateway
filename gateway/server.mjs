@@ -15,13 +15,17 @@ import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { createServer as createHttpServer, request as httpRequest, Agent } from 'node:http'
 import { createServer as createHttpsServer } from 'node:https'
 import { connect, isIP } from 'node:net'
+import { networkInterfaces } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { getAsset, isSea } from 'node:sea'
 import { brotliCompressSync, brotliDecompressSync, gunzipSync, gzipSync, inflateSync } from 'node:zlib'
 import { discoverHostPort } from './discover.mjs'
 import { SecretSource, mintCookie, credentialsPath } from './dsh-auth.mjs'
 
-const HERE = dirname(fileURLToPath(import.meta.url))
+// Single-file build (Node SEA): data lives next to the executable. From source,
+// it lives next to this file's package root.
+const HERE = isSea() ? dirname(process.execPath) : dirname(fileURLToPath(import.meta.url))
 const ROOT = join(HERE, '..')
 const CONFIG_PATH = join(HERE, 'config.json')
 const AUTH_PATH = join(HERE, 'auth.json')
@@ -30,6 +34,7 @@ const INJECT_DIR = join(ROOT, 'inject')
 const LOG_DIR = join(HERE, 'logs')
 
 const SESSION_COOKIE = 'dshgw'
+const VERSION = '0.1.0'
 const SCRYPT = { N: 32768, r: 8, p: 1, maxmem: 128 * 32768 * 8 * 2 }
 const HTML_BUFFER_LIMIT = 4 * 1024 * 1024
 const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade'])
@@ -80,11 +85,33 @@ const DEFAULT_CONFIG = {
   inject: { css: true, js: true },
 }
 
+/** Interfaces that never accept a phone: VPN, virtual machines, Bluetooth. */
+const VIRTUAL_INTERFACE = /VMware|VirtualBox|VMnet|vEthernet|Hyper-V|Loopback|Bluetooth|TAP-|Tailscale|ZeroTier|WAN Miniport/i
+
+/**
+ * First usable LAN address, preferring a physical Ethernet/Wi-Fi adapter.
+ * Used when the gateway boots without a config (e.g. a freshly unzipped exe).
+ */
+function pickLanAddress() {
+  const candidates = []
+  for (const [name, addresses] of Object.entries(networkInterfaces())) {
+    if (VIRTUAL_INTERFACE.test(name)) continue
+    for (const address of addresses ?? []) {
+      if (address.family !== 'IPv4' || address.internal) continue
+      if (address.address.startsWith('169.254.')) continue
+      candidates.push({ name, address: address.address })
+    }
+  }
+  const preferred = candidates.find((entry) => /以太网|Ethernet|WLAN|Wi-?Fi|无线/i.test(entry.name))
+  return (preferred ?? candidates[0])?.address ?? '127.0.0.1'
+}
+
 function loadConfig() {
   const stored = readJson(CONFIG_PATH, null)
   if (stored === null) {
-    writeFileSync(CONFIG_PATH, `${JSON.stringify(DEFAULT_CONFIG, null, 2)}\n`)
-    return { ...DEFAULT_CONFIG, inject: { ...DEFAULT_CONFIG.inject } }
+    const initial = { ...DEFAULT_CONFIG, listenHost: pickLanAddress(), inject: { ...DEFAULT_CONFIG.inject } }
+    writeFileSync(CONFIG_PATH, `${JSON.stringify(initial, null, 2)}\n`)
+    return initial
   }
   return { ...DEFAULT_CONFIG, ...stored, inject: { ...DEFAULT_CONFIG.inject, ...(stored.inject ?? {}) } }
 }
@@ -339,6 +366,14 @@ function invalidatePort() {
 const assetCache = new Map()
 
 function readInjectAsset(name) {
+  // Packaged single-file build: the CSS/JS ship inside the executable.
+  if (isSea()) {
+    try {
+      return Buffer.from(getAsset(name)).toString('utf8')
+    } catch {
+      return null
+    }
+  }
   const path = join(INJECT_DIR, name)
   let stamp
   try {
@@ -1215,6 +1250,11 @@ function handleUpgrade(req, socket, head, config, auth) {
 async function main() {
   const argv = process.argv.slice(2)
 
+  if (argv.includes('--version') || argv.includes('-V')) {
+    process.stdout.write(`${VERSION}\n`)
+    return
+  }
+
   const setPasswordAt = argv.indexOf('--set-password')
   if (setPasswordAt !== -1) {
     const password = argv[setPasswordAt + 1]
@@ -1358,4 +1398,7 @@ async function main() {
   })
 }
 
-await main()
+main().catch((error) => {
+  log(`gateway: fatal ${String(error?.stack ?? error)}`)
+  process.exitCode = 1
+})
