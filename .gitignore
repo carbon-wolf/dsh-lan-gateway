@@ -1,15 +1,14 @@
-# 运行态与凭据：绝不提交
-gateway/auth.json
+# 杩愯鎬佷笌鍑嵁锛氱粷涓嶆彁浜?gateway/auth.json
 gateway/config.json
 gateway/sessions.json
 gateway/logs/
 
-# 构建产物
+# 鏋勫缓浜х墿
 dist/
 build/
 node_modules/
 
-# 本地验证产物
+# 鏈湴楠岃瘉浜х墿
 artifacts/
 .edge-profile-*
 .edge-probe-*
@@ -20,5 +19,8 @@ artifacts/
 .edge-card-*
 .edge-chat-*
 
-# 工具链
-*.log
+# 宸ュ叿閾?*.log
+
+# 托盘运行态
+tray/tray.pid
+tray/tray.log

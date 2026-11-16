@@ -35,6 +35,18 @@
 
 自己构建单文件 exe：`npm install && npm run build:exe`（Node SEA，产物在 `dist\`）。
 
+### 无窗口托盘版（可选）
+
+把 `tray\` 目录放到 `dsh-gateway.exe` 旁边，双击 **`tray\start-tray.vbs`**：
+
+- 不弹控制台窗口，只在通知区域出现一个图标；
+- 右键菜单：打开网关设置页 / 打开手机页面 / 复制手机地址 / 重启网关 / 打开日志目录 / 退出；
+- 双击图标 → 直接打开设置页；
+- 首次启动用气泡提示临时密码；
+- `tray\install-autostart.cmd` 让托盘随登录静默启动，`tray\stop-tray.cmd` 连托盘带网关一起停。
+
+托盘宿主是 PowerShell 脚本（Windows 自带），PID 写在 `tray\tray.pid`，停止脚本按 PID 精确结束，不会误伤其他进程。源码模式下同样可用（会自动找 `gateway\server.mjs` 或 `node\node.exe`）。
+
 ## 源码方式（可改代码、可用守护进程）
 
 ```bat

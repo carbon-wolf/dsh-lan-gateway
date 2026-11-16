@@ -20,11 +20,19 @@ const argOf = (name, fallback) => {
 
 const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
 const tag = argOf('--tag', `v${pkg.version}`)
-const assetPath = join(ROOT, argOf('--asset', join('dist', 'dsh-gateway.exe')))
 
-if (!existsSync(assetPath)) {
-  console.error(`缺少产物：${assetPath}\n先运行 node scripts/build-exe.mjs`)
-  process.exit(1)
+// --asset may be repeated; upload every file listed.
+const assetPaths = []
+for (let index = 0; index < argv.length; index += 1) {
+  if (argv[index] === '--asset' && argv[index + 1] !== undefined) assetPaths.push(join(ROOT, argv[index + 1]))
+}
+if (assetPaths.length === 0) assetPaths.push(join(ROOT, 'dist', 'dsh-gateway.exe'))
+
+for (const assetPath of assetPaths) {
+  if (!existsSync(assetPath)) {
+    console.error(`缺少产物：${assetPath}\n先运行 node scripts/build-exe.mjs`)
+    process.exit(1)
+  }
 }
 
 /** Read the git credential for github.com without echoing it. */
@@ -84,24 +92,27 @@ if (!created.ok) {
 const release = await created.json()
 console.log(`release: ${release.html_url}`)
 
-const size = statSync(assetPath).size
-console.log(`上传 ${assetPath} (${(size / 1024 / 1024).toFixed(1)} MB)`)
-const uploadUrl = String(release.upload_url).replace('{?name,label}', `?name=${encodeURIComponent('dsh-gateway.exe')}`)
-const uploaded = await fetch(uploadUrl, {
-  method: 'POST',
-  headers: {
-    ...headers,
-    'content-type': 'application/octet-stream',
-    'content-length': String(size),
-  },
-  body: readFileSync(assetPath),
-  duplex: 'half',
-})
+const size = statSync(assetPaths[0]).size
+for (const assetPath of assetPaths) {
+  const assetSize = statSync(assetPath).size
+  const name = assetPath.replaceAll('\\', '/').split('/').pop()
+  console.log(`上传 ${name} (${(assetSize / 1024 / 1024).toFixed(2)} MB)`)
+  const uploadUrl = String(release.upload_url).replace('{?name,label}', `?name=${encodeURIComponent(name)}`)
+  const uploaded = await fetch(uploadUrl, {
+    method: 'POST',
+    headers: {
+      ...headers,
+      'content-type': 'application/octet-stream',
+      'content-length': String(assetSize),
+    },
+    body: readFileSync(assetPath),
+    duplex: 'half',
+  })
 
-if (!uploaded.ok) {
-  console.error(`上传失败 HTTP ${uploaded.status}: ${(await uploaded.text()).slice(0, 300)}`)
-  process.exit(1)
+  if (!uploaded.ok) {
+    console.error(`上传 ${name} 失败 HTTP ${uploaded.status}: ${(await uploaded.text()).slice(0, 300)}`)
+    process.exit(1)
+  }
+  const asset = await uploaded.json()
+  console.log(`  -> ${asset.browser_download_url}`)
 }
-
-const asset = await uploaded.json()
-console.log(`asset: ${asset.browser_download_url}`)

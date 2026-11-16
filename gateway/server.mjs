@@ -34,7 +34,7 @@ const INJECT_DIR = join(ROOT, 'inject')
 const LOG_DIR = join(HERE, 'logs')
 
 const SESSION_COOKIE = 'dshgw'
-const VERSION = '0.1.0'
+const VERSION = '0.1.1'
 const SCRYPT = { N: 32768, r: 8, p: 1, maxmem: 128 * 32768 * 8 * 2 }
 const HTML_BUFFER_LIMIT = 4 * 1024 * 1024
 const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade'])
