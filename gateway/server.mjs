@@ -573,7 +573,6 @@ const SETTINGS_MESSAGES = {
   rotated: '已轮换签名密钥：所有设备都已退出，设备列表也已清空。',
   revoked: '该设备已登出。',
   noted: '备注已保存。',
-  cleared: '设备列表已清空。',
 }
 
 const SETTINGS_ERRORS = {
@@ -737,11 +736,6 @@ ${banner}${badBanner}
     <input type="hidden" name="action" value="rotate">
     <div class="actions"><button type="submit" class="danger">让所有设备退出</button></div>
   </form>
-  <p class="sub" style="margin-top:14px">只想清掉列表、保留当前登录（例如清掉历史遗留的记录）：</p>
-  <form method="post">
-    <input type="hidden" name="action" value="clear">
-    <div class="actions"><button type="submit" class="ghost">清空设备列表</button></div>
-  </form>
   <form method="post">
     <input type="hidden" name="action" value="lock">
     <div class="actions"><button type="submit" class="ghost">锁定这台设备</button></div>
@@ -874,15 +868,6 @@ async function handleSettingsRoute(req, res, config, auth, runtime) {
     saveSessionRecords(true)
     log('gateway: session key rotated and device list reset from settings page')
     redirect('?ok=rotated')
-    return true
-  }
-
-  if (action === 'clear') {
-    sessionRecords = []
-    revokedSessions.clear()
-    saveSessionRecords(true)
-    log('gateway: device list cleared from settings page')
-    redirect('?ok=cleared')
     return true
   }
 
