@@ -1,5 +1,8 @@
 # DSH 局域网远程网关
 
+[![ci](https://github.com/carbon-wolf/dsh-lan-gateway/actions/workflows/ci.yml/badge.svg)](https://github.com/carbon-wolf/dsh-lan-gateway/actions/workflows/ci.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 给 **DeepSeek Harness 桌面版** 加一个带密码的局域网入口：手机、平板、另一台电脑的浏览器，直接接着用桌面版里**同一个** Host——相同的会话列表、进行中的任务、文件树和审批弹窗。相当于把桌面端变成可远程操作的服务，而不复制一份数据。
 
 > 桌面版本身就是一个 Web 应用（Electron 壳 + `dsh web`），只是它把 HTTP 服务绑在 `127.0.0.1` 的随机端口上，并且用一个进程级随机 token 保护。本网关做的三件事：**找到那个端口**、**用持久化 secret 铸造合法会话**、**把 Host/Origin 改写成 Host 认可的形式**。数据始终只有一份。
