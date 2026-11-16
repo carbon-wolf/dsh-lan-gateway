@@ -43,6 +43,18 @@ html[data-dsh-mobile] body {
   }
 }
 
+/* Footer stats (turns / tok/s, token usage) open their detail panel on click,
+ * but the desktop target is ~20px tall. Give touch a real hit area and a press
+ * state so it reads as tappable. */
+html[data-dsh-mobile] :where([data-composer-stat] button) {
+  min-height: 44px;
+  min-width: 44px;
+  border-radius: 8px;
+}
+html[data-dsh-mobile] :where([data-composer-stat] button):active {
+  background: rgb(255 255 255 / 0.08);
+}
+
 /* Text selection handles should not be blocked by touch-action from parents. */
 html[data-dsh-mobile] :where(pre, code, [contenteditable='true']) {
   touch-action: auto;
