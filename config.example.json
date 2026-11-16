@@ -1,0 +1,13 @@
+{
+  "listenHost": "192.168.1.10",
+  "listenPort": 3080,
+  "sessionDays": 30,
+  "maxFailures": 8,
+  "lockMinutes": 15,
+  "dshPort": null,
+  "tls": null,
+  "inject": {
+    "css": true,
+    "js": true
+  }
+}

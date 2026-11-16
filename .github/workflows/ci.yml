@@ -1,0 +1,31 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  syntax:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax-check every module
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem -Recurse -Include *.mjs -File | Where-Object { $_.FullName -notmatch '\\artifacts\\' }
+          $failed = 0
+          foreach ($file in $files) {
+            node --check $file.FullName
+            if ($LASTEXITCODE -ne 0) { Write-Host "FAILED: $($file.FullName)"; $failed = 1 }
+          }
+          exit $failed
+      - name: Reject committed secrets
+        shell: pwsh
+        run: |
+          $bad = @('gateway/auth.json', 'gateway/config.json', 'gateway/sessions.json')
+          foreach ($path in $bad) {
+            if (Test-Path $path) { Write-Host "must not be committed: $path"; exit 1 }
+          }

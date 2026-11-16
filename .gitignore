@@ -1,0 +1,16 @@
+# 运行态与凭据：绝不提交
+gateway/auth.json
+gateway/config.json
+gateway/sessions.json
+gateway/logs/
+
+# 本地验证产物
+artifacts/
+.edge-profile-*
+.edge-probe-*
+.edge-menu-*
+.edge-shot-*
+
+# 工具链
+node_modules/
+*.log

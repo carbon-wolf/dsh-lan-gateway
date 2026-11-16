@@ -1,0 +1,66 @@
+/* Gateway mobile layer.
+ *
+ * The shipped frontend is desktop-first (its CSS media queries stop at 480px
+ * and its layout is a fixed three-column shell), so this file only adds the
+ * parts that are safe without knowing the DOM: touch sizing, iOS input zoom,
+ * safe areas, and a couple of opt-in layout switches guarded by
+ * html[data-dsh-mobile*] which mobile.js sets.
+ *
+ * Layout experiments live behind data-dsh-mobile-layout so the default stays
+ * conservative; override with: document.documentElement.dataset.dshMobileLayout = 'dock'
+ */
+
+html[data-dsh-mobile],
+html[data-dsh-mobile] body {
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* iOS zooms the page when focusing a control under 16px. */
+html[data-dsh-mobile] :where(input, textarea, select) {
+  font-size: max(16px, 1em);
+}
+
+/* Comfortable touch targets without changing visual density of text. */
+html[data-dsh-mobile] :where(button, [role='button'], a[role='button']) {
+  touch-action: manipulation;
+  min-height: 40px;
+}
+
+html[data-dsh-mobile] :where(button, [role='button'], summary) {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Keep the composer clear of the home indicator. */
+html[data-dsh-mobile] body {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Hover-only affordances are dead weight on touch. */
+@media (hover: none) {
+  html[data-dsh-mobile] :where([data-contextual]) {
+    display: none !important;
+  }
+}
+
+/* Text selection handles should not be blocked by touch-action from parents. */
+html[data-dsh-mobile] :where(pre, code, [contenteditable='true']) {
+  touch-action: auto;
+}
+
+/* Narrow viewport: allow the shell to shrink instead of forcing a scrollbar. */
+@media (max-width: 900px) {
+  html[data-dsh-mobile] :where(main, section) {
+    min-width: 0;
+  }
+}
+
+/* ── layout experiments (opt-in) ───────────────────────────────────────── */
+
+html[data-dsh-mobile][data-dsh-mobile-layout='dock'] [data-dockkit-host] {
+  display: none !important;
+}
+
+html[data-dsh-mobile][data-dsh-mobile-layout='drawer'] {
+  --dshgw-drawer-width: min(84vw, 320px);
+}
