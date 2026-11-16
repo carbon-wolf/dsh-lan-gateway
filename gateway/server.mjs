@@ -34,6 +34,8 @@ const SCRYPT = { N: 32768, r: 8, p: 1, maxmem: 128 * 32768 * 8 * 2 }
 const HTML_BUFFER_LIMIT = 4 * 1024 * 1024
 const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade'])
 const MAX_SESSIONS = 200
+/** Rows kept per client address; browsers change UA when they update. */
+const MAX_PER_IP = 6
 
 // ── small utilities ─────────────────────────────────────────────────────────
 
@@ -206,23 +208,42 @@ function registerSession(req, rawCookie) {
   const current = Date.now()
   const ua = String(req.headers['user-agent'] ?? '').slice(0, 300)
   const ip = clientKey(req)
-  const existing = sessionRecords.find((record) => record.sig === parsed.signature)
-  if (existing !== undefined) {
-    existing.lastSeenAt = current
-    existing.ip = ip
-    existing.ua = ua
+  const bySig = sessionRecords.find((record) => record.sig === parsed.signature)
+  if (bySig !== undefined) {
+    bySig.lastSeenAt = current
+    bySig.ip = ip
+    bySig.ua = ua
   } else {
-    sessionRecords.unshift({
-      sig: parsed.signature,
-      expiresAt: parsed.expiresAt,
-      createdAt: current,
-      lastSeenAt: current,
-      ip,
-      ua,
-      note: '',
-      revokedAt: null,
-    })
-    if (sessionRecords.length > MAX_SESSIONS) sessionRecords.length = MAX_SESSIONS
+    // The list is meant to show devices, not every cookie ever issued: a later
+    // login from the same address and user agent replaces the older row.
+    const sameDevice = sessionRecords.find((record) => record.ip === ip && record.ua === ua && !record.revokedAt)
+    if (sameDevice !== undefined) {
+      sameDevice.sig = parsed.signature
+      sameDevice.expiresAt = parsed.expiresAt
+      sameDevice.lastSeenAt = current
+    } else {
+      // Browser upgrades change the UA string; keep a short list per address so
+      // historical rows cannot pile up.
+      const sameIp = sessionRecords
+        .filter((record) => record.ip === ip && !record.revokedAt)
+        .sort((left, right) => Number(left.lastSeenAt ?? 0) - Number(right.lastSeenAt ?? 0))
+      while (sameIp.length >= MAX_PER_IP) {
+        const oldest = sameIp.shift()
+        const at = sessionRecords.indexOf(oldest)
+        if (at !== -1) sessionRecords.splice(at, 1)
+      }
+      sessionRecords.unshift({
+        sig: parsed.signature,
+        expiresAt: parsed.expiresAt,
+        createdAt: current,
+        lastSeenAt: current,
+        ip,
+        ua,
+        note: '',
+        revokedAt: null,
+      })
+      if (sessionRecords.length > MAX_SESSIONS) sessionRecords.length = MAX_SESSIONS
+    }
   }
   sessionsDirty = true
 }
@@ -549,9 +570,10 @@ const SETTINGS_STYLE = `${LOGIN_STYLE}
 const SETTINGS_MESSAGES = {
   'config-saved': '配置已保存。监听地址、端口或 TLS 的改动要重启网关后生效，其余项立即生效。',
   'password-changed': '密码已更新，请用新密码重新登录。',
-  rotated: '已轮换签名密钥：所有已登录设备都需要重新登录。',
+  rotated: '已轮换签名密钥：所有设备都已退出，设备列表也已清空。',
   revoked: '该设备已登出。',
   noted: '备注已保存。',
+  cleared: '设备列表已清空。',
 }
 
 const SETTINGS_ERRORS = {
@@ -710,10 +732,15 @@ ${banner}${badBanner}
 
 <h2>会话</h2>
 <div class="card">
-  <p class="sub">轮换签名密钥会立即使所有设备退出登录（包括这台）。</p>
+  <p class="sub">轮换签名密钥会立即注销所有设备，并清空下面的设备列表。</p>
   <form method="post">
     <input type="hidden" name="action" value="rotate">
     <div class="actions"><button type="submit" class="danger">让所有设备退出</button></div>
+  </form>
+  <p class="sub" style="margin-top:14px">只想清掉列表、保留当前登录（例如清掉历史遗留的记录）：</p>
+  <form method="post">
+    <input type="hidden" name="action" value="clear">
+    <div class="actions"><button type="submit" class="ghost">清空设备列表</button></div>
   </form>
   <form method="post">
     <input type="hidden" name="action" value="lock">
@@ -840,8 +867,22 @@ async function handleSettingsRoute(req, res, config, auth, runtime) {
       return true
     }
     Object.assign(auth, next)
-    log('gateway: session key rotated from settings page')
+    // Rotating the key invalidates every cookie, so the device list starts empty
+    // as well — otherwise stale rows linger with no way to clear them.
+    sessionRecords = []
+    revokedSessions.clear()
+    saveSessionRecords(true)
+    log('gateway: session key rotated and device list reset from settings page')
     redirect('?ok=rotated')
+    return true
+  }
+
+  if (action === 'clear') {
+    sessionRecords = []
+    revokedSessions.clear()
+    saveSessionRecords(true)
+    log('gateway: device list cleared from settings page')
+    redirect('?ok=cleared')
     return true
   }
 
