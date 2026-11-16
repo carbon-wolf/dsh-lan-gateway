@@ -202,11 +202,15 @@ function saveSessionRecords(force = false) {
   }
 }
 
+/** Tool traffic (scripts, probes, PowerShell) is not a device and must not fill the list. */
+const AUTOMATION_UA = /PowerShell|curl\/|Wget|python-requests|Go-http-client|axios|node-fetch|undici|HeadlessChrome|HTTPie/i
+
 function registerSession(req, rawCookie) {
   const parsed = parseSessionValue(rawCookie)
   if (parsed === null || parsed.expiresAt <= Date.now()) return
   const current = Date.now()
   const ua = String(req.headers['user-agent'] ?? '').slice(0, 300)
+  if (ua === '' || !/Mozilla\//i.test(ua) || AUTOMATION_UA.test(ua)) return
   const ip = clientKey(req)
   const bySig = sessionRecords.find((record) => record.sig === parsed.signature)
   if (bySig !== undefined) {
@@ -465,7 +469,7 @@ const LOGIN_STYLE = `
   body { margin: 0; min-height: 100dvh; display: grid; place-items: center;
     font: 16px/1.5 -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
     background: #0f1115; color: #e8eaed; padding: 24px env(safe-area-inset-right) calc(24px + env(safe-area-inset-bottom)) env(safe-area-inset-left) }
-  form { width: min(360px, 100%); background: #171a21; border: 1px solid #262b36; border-radius: 16px; padding: 24px }
+  form.login { width: min(360px, 100%); background: #171a21; border: 1px solid #262b36; border-radius: 16px; padding: 24px }
   h1 { font-size: 18px; margin: 0 0 4px }
   p.hint { margin: 0 0 20px; font-size: 13px; color: #9aa3b2 }
   input, button { width: 100%; font-size: 16px; border-radius: 10px; padding: 14px 16px; border: 1px solid #2f3542;
@@ -482,7 +486,7 @@ function loginPage({ error, lockedMinutes, next }) {
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex"><title>DeepSeek Harness 远程网关</title>
 <style>${LOGIN_STYLE}</style></head><body>
-<form method="post" action="/_gw/login">
+<form class="login" method="post" action="/_gw/login">
   <h1>DeepSeek Harness 远程网关</h1>
   <p class="hint">请输入网关密码，登录后继续使用桌面版里的会话。</p>
   <input type="password" name="password" autocomplete="current-password" autofocus required placeholder="网关密码">
@@ -528,6 +532,14 @@ function readBody(req, limit) {
 const SETTINGS_STYLE = `${LOGIN_STYLE}
   body { display: block; padding: 16px env(safe-area-inset-right) calc(24px + env(safe-area-inset-bottom)) env(safe-area-inset-left) }
   .wrap { max-width: 560px; margin: 0 auto }
+  /* Forms here are plain containers; the login card rules only apply to form.login. */
+  form { width: auto; margin: 0; padding: 0; border: 0; background: transparent; border-radius: 0 }
+  form.card { padding: 16px; background: #171a21; border: 1px solid #262b36; border-radius: 14px }
+  button { width: auto }
+  @media (min-width: 900px) {
+    .wrap { max-width: 760px }
+    .row { gap: 16px }
+  }
   h1 { font-size: 19px; margin: 8px 0 2px }
   h2 { font-size: 15px; margin: 26px 0 10px; color: #cfd5e1 }
   .sub { color: #9aa3b2; font-size: 13px; margin: 0 0 10px }
@@ -680,7 +692,7 @@ ${banner}${badBanner}
       <input type="number" name="listenPort" min="1" max="65535" value="${String(config.listenPort)}" required>
     </div>
     <div>
-      <label>登录保持天数（0–90，0 = 不自动退出）</label>
+      <label>登录保持（天，0 = 不退出）</label>
       <input type="number" name="sessionDays" min="0" max="90" value="${String(config.sessionDays)}" required>
     </div>
   </div>
