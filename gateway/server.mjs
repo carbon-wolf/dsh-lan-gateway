@@ -1010,6 +1010,10 @@ async function handleGatewayRoute(req, res, config, auth) {
 }
 
 function sendUpstreamFailure(res, detail) {
+  if (res.headersSent || res.writableEnded || res.destroyed) {
+    res.destroy?.()
+    return
+  }
   const html = errorPage('桌面版未就绪', detail)
   res.writeHead(502, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
   res.end(html)
@@ -1095,6 +1099,9 @@ async function proxyRequest(req, res, config) {
           }
           port = next
           attempt(false)
+        }).catch((retryError) => {
+          log(`gateway: retry failed ${String(retryError?.message ?? retryError)}`)
+          sendUpstreamFailure(res, '代理重试失败，请刷新页面。')
         })
         return
       }
@@ -1302,6 +1309,15 @@ async function main() {
   }
   process.on('SIGINT', shutdown)
   process.on('SIGTERM', shutdown)
+
+  // This process is a long-lived proxy: an unexpected rejection in one request
+  // path must not take the whole gateway (and every phone session) down.
+  process.on('unhandledRejection', (reason) => {
+    log(`gateway: unhandled rejection ${String(reason?.stack ?? reason)}`)
+  })
+  process.on('uncaughtException', (error) => {
+    log(`gateway: uncaught exception ${String(error?.stack ?? error)}`)
+  })
 }
 
 await main()
