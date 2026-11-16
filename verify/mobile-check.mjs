@@ -134,17 +134,6 @@ const PROBE = `(() => {
     const style = getComputedStyle(element);
     return { w: Math.round(box.width), h: Math.round(box.height), display: style.display, position: style.position };
   })();
-  const lockHost = document.getElementById('dshgw-lock');
-  const lockButton = lockHost !== null && lockHost.shadowRoot !== null
-    ? (lockHost.shadowRoot.querySelector('button[aria-label="锁定并退出网关"]') ?? lockHost.shadowRoot.querySelector('button:last-of-type'))
-    : null;
-  const settingsButton = lockHost !== null && lockHost.shadowRoot !== null
-    ? lockHost.shadowRoot.querySelector('button[aria-label="打开网关设置"]')
-    : null;
-  const lockRect = lockButton === null ? null : (() => {
-    const box = lockButton.getBoundingClientRect();
-    return { w: Math.round(box.width), h: Math.round(box.height), x: Math.round(box.left), y: Math.round(box.top), right: Math.round(window.innerWidth - box.right), bottom: Math.round(window.innerHeight - box.bottom), label: lockButton.getAttribute('aria-label'), placement: lockHost.dataset.placement };
-  })();
   const dock = document.querySelector('[data-dockkit-host]');
   return JSON.stringify({
     viewport: [window.innerWidth, window.innerHeight],
@@ -152,8 +141,7 @@ const PROBE = `(() => {
     mobileMarker: root.hasAttribute('data-dsh-mobile'),
     boot: typeof window.__DSH_BOOT__ === 'object',
     dock: rect(dock),
-    lockButton: lockRect,
-    settingsButton: settingsButton === null ? null : { label: settingsButton.getAttribute('aria-label') },
+    inlineControl: document.getElementById('dshgw-lock') !== null,
     textHead: (document.body.innerText || '').replace(/\\s+/g, ' ').slice(0, 140),
   }, null, 2);
 })()`
@@ -251,29 +239,73 @@ async function main() {
 
     let lockTest = null
     if (args.testLock) {
+      // Lock now lives in the account menu, so drive it the way a person would:
+      // open the sidebar account menu, then click the injected 锁定网关 entry.
       const before = await cdp.send('Runtime.evaluate', { expression: 'location.pathname + location.search', returnByValue: true })
-      void cdp.send('Runtime.evaluate', {
-        expression: `(() => { const host = document.getElementById('dshgw-lock'); const button = host?.shadowRoot?.querySelector('button[aria-label="锁定并退出网关"]'); button?.click(); return button !== null })()`,
+      // Narrow screens start with the sidebar collapsed: expand it first, then
+      // the account menu trigger is reachable.
+      const expanded = await cdp.send('Runtime.evaluate', {
+        expression: `(() => {
+          const toggle = document.querySelector('[data-sidebar-toggle]') ?? [...document.querySelectorAll('button, [role=button]')].find((element) => /侧栏|sidebar/i.test(element.getAttribute('aria-label') || ''));
+          if (!toggle) return 'no-toggle';
+          toggle.click();
+          return 'expanded';
+        })()`,
         returnByValue: true,
-      }, 8000).catch(() => {})
+      })
+      await sleep(800)
+      const opened = await cdp.send('Runtime.evaluate', {
+        expression: `(() => {
+          const trigger = document.querySelector('[aria-label="账号菜单"]') ?? [...document.querySelectorAll('button, [role=button]')].find((element) => (element.textContent || '').includes('账号'));
+          if (!trigger) return 'no-trigger';
+          trigger.click();
+          return 'opened';
+        })()`,
+        returnByValue: true,
+      })
+      await sleep(900)
+      const injected = await cdp.send('Runtime.evaluate', {
+        expression: `(() => {
+          const menu = document.querySelector('[role="menu"][data-anchor-side]');
+          if (menu === null) return { menu: false, items: [] };
+          const items = [...menu.querySelectorAll('[data-dshgw-item]')].map((element) => (element.textContent || '').trim());
+          return { menu: true, items };
+        })()`,
+        returnByValue: true,
+      })
+
       let dialogsAccepted = 0
-      for (let attempt = 0; attempt < 40; attempt += 1) {
-        if (cdp.takeEvents('Page.javascriptDialogOpening').length > 0) {
-          await cdp.send('Page.handleJavaScriptDialog', { accept: true })
-          dialogsAccepted += 1
-          break
+      if (injected.result.value?.menu === true) {
+        void cdp.send('Runtime.evaluate', {
+          expression: `(() => {
+            const item = [...document.querySelectorAll('[data-dshgw-item]')].find((element) => (element.textContent || '').includes('锁定网关'));
+            if (!item) return false;
+            item.querySelector('button[role="menuitem"]')?.click();
+            return true;
+          })()`,
+          returnByValue: true,
+        }, 8000).catch(() => {})
+        for (let attempt = 0; attempt < 40; attempt += 1) {
+          if (cdp.takeEvents('Page.javascriptDialogOpening').length > 0) {
+            await cdp.send('Page.handleJavaScriptDialog', { accept: true })
+            dialogsAccepted += 1
+            break
+          }
+          await sleep(150)
         }
-        await sleep(150)
+        await sleep(3000)
       }
-      await sleep(3000)
+
       const after = await cdp.send('Runtime.evaluate', { expression: 'location.pathname + location.search', returnByValue: true })
       const probeStatus = await fetch(`${session.origin}/`, { redirect: 'manual', headers: { cookie: `dshgw=${session.value}` } })
       lockTest = {
         before: before.result.value,
+        menuOpened: opened.result.value,
+        menuItems: injected.result.value?.items ?? [],
         dialogsAccepted,
         after: after.result.value,
         gatewayStatusWithLockedCookie: probeStatus.status,
-        reachableLockButton: report.lockButton !== null,
+        inlineControlRemoved: report.inlineControl === false,
       }
     }
 
